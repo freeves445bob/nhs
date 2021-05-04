@@ -1,0 +1,522 @@
+﻿var cname = 'your-area-location';
+
+var Police = (function () {
+	"use strict";
+
+	return {
+		locateNeighbourhood: function (lat, lng, callback) {
+			// api url
+			var url = "https://data.police.uk/api/locate-neighbourhood?q=" + lat + "," + lng;
+
+			Police().getHttpData(url, function (response) {
+				response = JSON.parse(response);
+				callback(response);
+			});
+		},
+
+		getHttpData: function (url, callback) {
+			var httpRequest = new XMLHttpRequest();
+
+			httpRequest.onreadystatechange = function () {
+				if (httpRequest.readyState == 4 && httpRequest.status == 200) {
+					callback(httpRequest.responseText);
+				}
+			}
+
+			httpRequest.open("GET", url, true);
+			httpRequest.send(null);
+		}
+	}
+});
+
+var map;
+var markersArray = [];
+
+var MapController = (function () {
+	"use strict";
+
+	return {
+		initMap: function () {
+
+			var areaSearchElement = document.getElementById('area-search__input');
+			//var force = areaSearchElement.dataset.force; IE10 doesn't support
+			var force = areaSearchElement.getAttribute('data-force');
+			var defaultLat = 1;
+			var defaultLng = 1;
+			switch (force) {
+				case 'bedfordshire':
+					defaultLat = 52.136988;
+					defaultLng = -0.472903;
+					break;
+				case 'cambridgeshire':
+					defaultLat = 52.330524;
+					defaultLng = -0.197385;
+					break;
+				case 'hertfordshire':
+					defaultLat = 51.786859;
+					defaultLng = -0.217270;
+					break;
+				default:
+					defaultLat = 52.4153721;
+					defaultLng = -2.6497115;
+			}
+
+			var latlng = new google.maps.LatLng(defaultLat, defaultLng);
+			var myOptions = {
+				zoom: 10,
+				center: latlng,
+				mapTypeId: google.maps.MapTypeId.ROADMAP
+			};
+			map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+
+			// add a click event handler to the map object
+			google.maps.event.addListener(map, "click", function (event) {
+				// when map clicked, place a marker
+				MapController().placeMarker(event.latLng, false);
+
+				YourArea().setLocation(
+					event.latLng.lat(),
+					event.latLng.lng(),
+					force,
+					'MAPMARKER',
+					false
+				);
+			});
+
+			// read cookie and place a marker on the map if location is read
+			var cookieData = readCookie(cname);
+			if (cookieData != null) {
+
+				var latLng = cookieData.split(',');
+				var position = new google.maps.LatLng(latLng[0], latLng[1]);
+				MapController().placeMarker(position, true, 10);
+
+			}
+		},
+		placeMarker: function (location, zoomMap, zoomLevel) {
+
+			// first remove all markers if there are any
+			MapController().deleteOverlays();
+
+			var marker = new google.maps.Marker({
+				position: location,
+				map: map
+			});
+
+			// add marker in markers array
+			markersArray.push(marker);
+
+			if (zoomMap == true) {
+				map.setCenter(location);
+				map.setZoom(zoomLevel);
+			}
+		},
+		deleteOverlays: function () {
+			if (markersArray) {
+				for (var i = 0; i < markersArray.length; i++) {
+					markersArray[i].setMap(null);
+				}
+				markersArray.length = 0;
+			}
+		}
+	}
+});
+
+var YourArea = (function () {
+	"use strict";
+
+	// private alias to settings
+	var s;
+
+	return {
+		init: function () {
+			//var cookieData = readCookie(cname);
+
+			//if (cookieData != null && window.location.pathname.toLowerCase().includes("/your-area/")) {
+			//	// get latLng from cookie and force data attribute from the search element
+			//	var latLng = cookieData.split(",");
+			//	var force = document.getElementById('area-search__input').dataset.force;
+			//	this.navigateArea(latLng[0], latLng[1], force);
+			//}
+			// if navigateArea has not redirected us we will initialise the searchArea
+			this.searchArea();
+		},
+		searchArea: function () {
+
+			// locate searchInputElement(s) and initialise Google Autocomplete
+
+			var searchInputElement = document.getElementById('area-search__input');
+			if (searchInputElement != null) {
+				// initialise Google Autocomplete
+				YourArea().initAutocomplete(searchInputElement);
+			}
+
+			var searchInputModalElement = document.getElementById('area-search-modal__input');
+			if (searchInputModalElement != null) {
+				// initialise Google Autocomplete
+				YourArea().initAutocomplete(searchInputModalElement);
+
+			}
+
+			var searchSubmitButtonElement = document.getElementById('area-search__submit');
+			if (typeof searchSubmitButtonElement !== "undefined" && searchSubmitButtonElement !== null) {
+				searchSubmitButtonElement.addEventListener("click", function (e) {
+
+					// Create the event
+					try {
+						var evt = new KeyboardEvent('keydown', { key: 13 });
+					}
+					catch (err) {
+						//IE10 Code
+						var evt = document.createEvent('KeyboardEvent');
+						evt.initKeyboardEvent('keydown', true, true, document.defaultView, 13, 0, "", false, "");
+					}
+
+					// Dispatch the event on the element
+					searchInputElement.dispatchEvent(evt);
+
+					e.preventDefault();
+					return false;
+				});
+			}
+
+			var searchSubmitButtonModalElement = document.getElementById('area-search-modal__submit');
+			if (typeof searchSubmitButtonModalElement !== "undefined" && searchSubmitButtonModalElement !== null) {
+				searchSubmitButtonModalElement.addEventListener("click", function (e) {
+
+					// Create the event
+					try {
+						var evt = new KeyboardEvent('keydown', { key: 13 });
+					}
+					catch (err) {
+						//IE10 Code
+						var evt = document.createEvent('KeyboardEvent');
+						evt.initKeyboardEvent('keydown', true, true, document.defaultView, 13, 0, "", false, "");
+					}
+
+					// Dispatch the event on the element
+					searchInputModalElement.dispatchEvent(evt);
+
+					e.preventDefault();
+					return false;
+				});
+			}
+		},
+		initAutocomplete: function (searchElement) {
+			// force
+			//var force = searchElement.dataset.force; IE10 doesn't support
+			var force = searchElement.getAttribute('data-force');
+
+			// autocomplete
+			var autocomplete = new google.maps.places.Autocomplete(searchElement);
+			autocomplete.setComponentRestrictions
+				(
+				{ 'country': ['gb'] }
+				);
+
+			autocomplete.addListener('place_changed', function () {
+				// place & coords
+				var place = autocomplete.getPlace();
+
+				if (place.geometry != undefined) {
+					var location = place.geometry.location;
+					var lat = location.lat();
+					var lng = location.lng();
+
+					// set the location
+					YourArea().setLocation(lat, lng, force, 'AUTOCOMPLETE', true);
+				}
+			});
+
+			searchElement.addEventListener("keydown", function (e) {
+				if (e.keyCode === 13 || e.key === "13") {
+					if (!e.triggered && !$('.pac-item').hasClass('pac-item-selected')) {
+						google.maps.event.trigger(this, 'keydown', { keyCode: 40 })
+						google.maps.event.trigger(this, 'keydown', { keyCode: 13, triggered: true })
+					}
+					e.preventDefault();
+					return false;
+				}
+			});
+		},
+		setLocation: function (lat, lng, force, locationSource, zoomMap) {
+
+			// update field values on page
+			var latFld = document.getElementById('latFld');
+			var lngFld = document.getElementById('lngFld');
+			var inputSource = document.getElementById('inputSource');
+
+			if (latFld != null) {
+				latFld.innerHTML = lat;
+				lngFld.innerHTML = lng;
+				inputSource.innerHTML = locationSource;
+			}
+
+			var position = new google.maps.LatLng(lat, lng);
+			// map.OuterHTML code included to ensure that functionality works in Safari - do not call map div just map otherwise these fixes are necessary
+			if (map != undefined) {
+				if ((typeof map.outerHTML !== "undefined")) {
+					if (!(map.outerHTML.includes('div id="map" style'))) {
+						MapController().placeMarker(position, zoomMap, 15);
+					}
+				}
+				else {
+					MapController().placeMarker(position, zoomMap, 15);
+				}
+			}
+
+			// goto my area
+			YourArea().navigateArea(lat, lng, force);
+		},
+		navigateArea: function (lat, lng, force) {
+			// police uk
+			Police().locateNeighbourhood(lat, lng, function (locateNeighbourhood) {
+
+				// elements
+				var searchMessage = document.getElementsByClassName('search-message')[0];
+
+				var cookieExpiry = 1;
+
+				if (locateNeighbourhood.force == force) {
+
+					// set the cookie
+					var cookieValue = lat + ',' + lng + ',' + locateNeighbourhood.neighbourhood;
+					createCookie(cname, cookieValue, cookieExpiry);
+
+					// map.OuterHTML code included to ensure that functionality works in Safari - do not call map div just map otherwise these fixes are necessary
+					if (typeof map == 'undefined' || (typeof map.outerHTML !== "undefined" && (map.outerHTML.includes('div id="map" style')))) { // only redirect to neighbourhood page if there is no map
+						// build url
+						var url = "/" + force + "/your-area/" + locateNeighbourhood.neighbourhood;
+
+						// navigate
+						if (window.location.pathname != url) {
+							window.location.href = url;
+						}
+					}
+					else {
+						if (searchMessage != null) {
+							searchMessage.parentElement.removeChild(searchMessage);
+						}
+					}
+				}
+				else {
+
+					// set the cookie
+					var cookieValue = lat + ',' + lng + ',OOA';
+					createCookie(cname, cookieValue, cookieExpiry);
+
+					// elements
+					var searchInputElement = document.getElementById('area-search__input');
+
+					// error
+					if (searchInputElement != null) {
+						var errorElement = document.createElement("div");
+						errorElement.setAttribute("class", "search-message");
+						var errorText = document.createElement("p");
+						errorText.innerText = "Your location falls outside of this constabulary";
+						errorElement.appendChild(errorText);
+						if (typeof map != 'undefined') {
+							var extraText = document.createElement("div");
+							extraText.innerHTML = "<p>Please visit the following to check location: <a target='_blank' href='https://www.police.uk/'>Police.uk</a><p>";
+							extraText.setAttribute("class", "message__extra");
+							errorElement.appendChild(extraText);
+						}
+
+						if (searchMessage != null) {
+							searchMessage.parentElement.removeChild(searchMessage);
+						}
+						document.getElementsByClassName('area-search-container')[0].appendChild(errorElement);
+					}
+				}
+			});
+		},
+
+		createMap: function (lat, lng, boundary, stationLat, stationLng) {
+			// elements
+			var mapElement = document.getElementById('map');
+
+			// map
+			var map = new google.maps.Map(mapElement, {
+				//center: { lat: lat, lng: lng },
+				//zoom: 10,
+				streetViewControl: false,
+				mapTypeControl: false,
+				scrollwheel: false
+			});
+
+			// marker
+			if (stationLat != "" && stationLng != "") {
+				var stationMarker = new google.maps.Marker({
+					map: map,
+					anchorPoint: new google.maps.Point(0, -29),
+					position: new google.maps.LatLng(stationLat, stationLng)
+				});
+			}
+
+			// parse boundary info
+			var boundaryData = YourArea().processJsonData(boundary);
+
+			// boundary
+			var boundaryPolygon = YourArea().createMapPolygon(boundaryData);
+			var bounds = new google.maps.LatLngBounds();
+			for (i = 0; i < boundaryPolygon.length; i++) {
+				bounds.extend(boundaryPolygon[i]);
+			}
+			var center = bounds.getCenter();
+			map.fitBounds(bounds);
+			map.setCenter(center);
+
+			// polygon
+			var polygon = new google.maps.Polygon({
+				paths: boundaryPolygon,
+				strokeColor: '#00A1E4',
+				strokeOpacity: 0.8,
+				strokeWeight: 3,
+				fillColor: '#00A1E4',
+				fillOpacity: 0.3
+			});
+			polygon.setMap(map);
+
+
+			// re-center map to some offseet
+			google.maps.event.addListenerOnce(map, 'idle', function () {
+				var mapWidth = mapElement.offsetWidth;
+
+				var mapScale = Math.pow(2, map.getZoom());
+
+				var offsetValue = mapWidth < 1024 ? mapWidth / -4 : -256;
+
+				var currentPoint = map.getProjection().fromLatLngToPoint(center);
+				var offsetPoint = new google.maps.Point(
+					(offsetValue / mapScale) || 0,
+					(0 / mapScale) || 0
+				);
+				var newPoint = new google.maps.Point(
+					currentPoint.x - offsetPoint.x,
+					currentPoint.y + offsetPoint.y
+				);
+
+				var newCenter = map.getProjection().fromPointToLatLng(newPoint);
+
+				map.panTo(newCenter);
+			});
+
+			window.addEventListener('resize', function (event) {
+				var mapWidth = mapElement.offsetWidth;
+
+				var mapScale = Math.pow(2, map.getZoom());
+
+				var offsetValue = mapWidth < 1024 ? mapWidth / -4 : -256;
+
+				var currentPoint = map.getProjection().fromLatLngToPoint(center);
+				var offsetPoint = new google.maps.Point(
+					(offsetValue / mapScale) || 0,
+					(0 / mapScale) || 0
+				);
+				var newPoint = new google.maps.Point(
+					currentPoint.x - offsetPoint.x,
+					currentPoint.y + offsetPoint.y
+				);
+
+				var newCenter = map.getProjection().fromPointToLatLng(newPoint);
+
+				map.panTo(newCenter);
+			});
+		},
+
+		processJsonData: function (data) {
+			data = data.replace(/&quot;/g, '"');
+			return JSON.parse(data);
+		},
+
+		createMapPolygon: function (boundaryData) {
+			var boundaryPolygon = [];
+
+			boundaryData.forEach(function (item) {
+				boundaryPolygon.push({ lat: parseFloat(item.latitude), lng: parseFloat(item.longitude) });
+			});
+
+			return boundaryPolygon;
+		},
+
+		createCrimesPolygon: function (boundaryData) {
+			var polygon = "";
+
+			boundaryData.forEach(function (item) {
+				polygon = polygon + item.latitude + "," + item.longitude + ":";
+			});
+
+			return polygon;
+		}
+	};
+});
+
+
+
+// FUNCTION : initiate HTML5 geolocation API
+function initGeo() {
+	if (navigator.geolocation) {
+		// start timer
+		timer = setTimeout(function () {
+			//writeGeoError();
+
+		}, 6000);
+
+		// callback to html5 geolocation api success / fail functions
+		navigator.geolocation.getCurrentPosition(geoSuccess, geoFail, { timeout: 5000 });
+	}
+}
+
+
+
+// FUNCTION : success response from HTML5 geolocation API
+function geoSuccess(position) {
+	// clear timer
+	clearTimeout(timer);
+
+	// get lat/lng coords from html5 geolocation api
+	var lat = position.coords.latitude;
+	var lng = position.coords.longitude;
+
+	// element
+	var searchInputElement = document.getElementById('area-search__input');
+	var force = searchInputElement.dataset.force;
+
+	// load my area
+	YourArea().setLocation(lat, lng, force, 'GEOLOCATE', true);
+}
+
+
+
+// FUNCTION : failure response from HTML5 geolocation API
+function geoFail(fail) {
+	// clear timer
+	clearTimeout(timer);
+
+	// set location failure variable
+	hasLocationFailed = true;
+
+	// failure error code
+	var err;
+	switch (fail.code) {
+		case 0: // UNKNOWN_ERROR
+			err = "Sorry, something went wrong when attempting to locate you.";
+			break;
+		case 1: // PERMISSION_DENIED
+			err = "You have opted not to share your location so we cannot automatically locate you.";
+			break;
+		case 2: // POSITION_UNAVAILABLE
+			err = "Sorry, your location is currently unavailable.";
+			break;
+		case 3: // TIMEOUT
+			err = "Sorry, the request to find your location was taking too long and timed out.";
+			break;
+		default:
+	}
+
+	//writeGeoError(err);
+}
+
+//searchSubmitButtonElement.onclick = function () {
+//	console.log('clicked');
+//}
